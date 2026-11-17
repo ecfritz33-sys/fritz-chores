@@ -129,6 +129,11 @@ button.li{width:100%;text-align:left}
 .tbl td{padding:9px 6px;border-bottom:1px solid var(--line);white-space:nowrap}
 .tbl tr:last-child td{border-bottom:0}
 .scroll{overflow-x:auto;margin:0 -16px;padding:0 16px}
+.bt td,.bt th{padding-left:10px;padding-right:10px}
+.bt td:first-child,.bt th:first-child{position:sticky;left:0;background:#fff;z-index:1;padding-left:16px;box-shadow:1px 0 0 var(--line)}
+.bt tbody tr,.tbl tr[data-event]{cursor:pointer}
+.bt .cut{margin:0}
+.lad-row{cursor:pointer}
 
 /* form */
 .field{display:flex;flex-direction:column;gap:5px;margin-bottom:12px}
@@ -253,7 +258,7 @@ async function call(fn,...args){
 }
 
 /* ---------- state ---------- */
-const S={data:null,tab:ls.get('swim-tab')||'home',tile:null,course:'SCY',stroke:'all',show:'all',pevent:ls.get('swim-pevent')||'50 Fly',pcourse:'SCY',
+const S={data:null,view:ls.get('swim-view')||'cards',tab:ls.get('swim-tab')||'home',tile:null,course:'SCY',stroke:'all',show:'all',pevent:ls.get('swim-pevent')||'50 Fly',pcourse:'SCY',
   meetSel:null,loading:false,offline:false,pin:ls.get('swim-pin')||'',
   form:{meet:ls.get('swim-lastmeet')||'',date:todayKey(),course:'SCY',event:'50 Free',time:''}};
 
@@ -317,6 +322,7 @@ function render(){
 function after(){
   if(S.tab==='progress'){drawProgress($('#pchart'),S.pevent,S.pcourse,true);const c=document.querySelector('[data-pevent][aria-pressed=true]');if(c)c.scrollIntoView({block:'nearest',inline:'center'})}
   if(S.tab==='add')updatePreview();
+  if(S.tab==='times')drawLadder($('#ladder'),M.rows.filter(keep));
 }
 
 /* Home */
@@ -390,6 +396,10 @@ function vTimes(){
   const rows=M.rows.filter(keep);
   let h=filters();
   if(!rows.length)return h+'<div class="card empty">No events match these filters.</div>';
+  const scyv=S.course==='SCY';
+  h+=`<div class="card"><h2>Where each event sits</h2><p class="note">${scyv?'Distance from the Age Group cut as a share of her time. Further left is faster. Tap an event for details.':'Distance from the USA Swimming AA level as a share of her time. Further left is faster.'}</p><div class="legend" id="ladLegend"></div><div id="ladder"></div></div>`;
+  h+=`<div style="display:flex;justify-content:space-between;align-items:center;margin:4px 2px 10px"><h2 style="margin:0;font-size:22px">Best times</h2><div class="seg">${[['cards','Cards'],['table','Table']].map(([v,l])=>`<button data-view="${v}" aria-pressed="${S.view===v}">${l}</button>`).join('')}</div></div>`;
+  if(S.view==='table')return h+bestTable(rows)+`<p class="small muted" style="padding:0 4px">${esc(M.settings.usaLabel||'')}. ${esc(M.settings.neLabel||'')}.</p>`;
   h+=rows.map(r=>{
     let cuts='';
     if(r.ne){const g=r.ne.gaps,s=r.std;const c=(n,cut,gap)=>`<span class="cut ${gap<=0?'made':''}">${n} ${ft(cut)} ${gap<=0?'✓':`· <b>${fgap(gap)}</b>`}</span>`;
@@ -406,8 +416,8 @@ function vProgress(){
   <div class="chips">${evs.map(e=>`<button class="chip" data-pevent="${esc(e)}" aria-pressed="${S.pevent===e}">${esc(e)}</button>`).join('')}</div>
   <div id="pchart"></div></div>`;
   const rows=M.rows.filter(r=>r.course===S.pcourse&&r.swimCount>=2);
-  h+=`<div class="card"><h2>Pace and projections</h2><p class="note">Time dropped in the last 12 months and when she'd reach the next cut at that pace. Drops usually slow as swimmers get faster, so these are best-case.</p><div class="scroll"><table class="tbl"><thead><tr><th>Event</th><th>Best</th><th>Dropped</th><th>Next cut</th><th>On pace</th></tr></thead><tbody>`+
-    rows.map(r=>{const tgt=r.ne&&r.ne.next?r.ne.next:r.next;return `<tr data-event="${esc(r.event)}" data-course="${r.course}" style="cursor:pointer"><td><b>${esc(r.event)}</b></td><td>${r.time}</td><td>${r.drop>0?fgap(r.drop)+'s':'—'}</td><td>${tgt?tgt.name+' '+ft(tgt.cut):'—'}</td><td>${tgt?(eta(tgt.gap,r.rate)||'—'):'—'}</td></tr>`}).join('')+`</tbody></table></div></div>`;
+  h+=`<div class="card"><h2>Pace and projections</h2><p class="note">Time dropped in the last 12 months and when she'd reach the next cut at that pace. Drops usually slow as swimmers get faster, so these are best-case.</p><div class="scroll"><table class="tbl bt"><thead><tr><th>Event</th><th>Best</th><th>Dropped</th><th>Pace</th><th>Next cut</th><th>On pace by</th>${S.pcourse==='SCY'?'<th>Age Group by</th>':''}</tr></thead><tbody>`+
+    rows.map(r=>{const tgt=r.ne&&r.ne.next?r.ne.next:r.next;return `<tr data-event="${esc(r.event)}" data-course="${r.course}"><td><b>${esc(r.event)}</b></td><td>${r.time}</td><td>${r.drop>0?fgap(r.drop)+'s':'—'}</td><td>${r.rate?r.rate.toFixed(2)+' s/mo':'—'}</td><td>${tgt?tgt.name+' '+ft(tgt.cut):'—'}</td><td>${tgt?(eta(tgt.gap,r.rate)||'—'):'—'}</td>${S.pcourse==='SCY'?`<td>${r.ne?(r.ne.tier==='Age Group'?'Done':eta(r.ne.gaps.ag,r.rate)||'—'):'—'}</td>`:''}</tr>`}).join('')+`</tbody></table></div></div>`;
   return h;
 }
 
@@ -526,6 +536,54 @@ function drawProgress(box,ev,course,withPace){
   svg.addEventListener('pointerleave',()=>tip.style.display='none');
 }
 
+/* Best-times table */
+function bestTable(rows){
+  const scy=S.course==='SCY';
+  const cut=(r,k)=>{if(!r.ne||r.std[k]==null)return '—';const g=r.ne.gaps[k];return g<=0?`<span class="cut made">${ft(r.std[k])} ✓</span>`:`${ft(r.std[k])} <span class="muted">· ${fgap(g)}</span>`};
+  return `<div class="card" style="padding:6px 0"><div class="scroll" style="margin:0;padding:0"><table class="tbl bt"><thead><tr><th>Event</th><th>Best</th><th>Level</th><th>Next level</th>${scy?'<th>Bronze</th><th>Silver</th><th>AG bonus</th><th>Age Group</th>':''}<th>Date</th></tr></thead><tbody>`+
+    rows.map(r=>`<tr data-event="${esc(r.event)}" data-course="${r.course}"><td><b>${esc(r.event)}</b></td><td>${r.time}</td><td>${r.level?`<span class="pill lv-${r.level.replace(' ','')}">${r.level}</span>`:'—'}</td><td>${r.next?`${r.next.name} ${ft(r.next.cut)} <span class="muted">· ${fgap(r.next.gap)}</span>`:'—'}</td>${scy?['bronze','silver','ag_bonus','ag'].map(k=>`<td>${cut(r,k)}</td>`).join(''):''}<td>${fdate(r.date)}${r.old?' <span class="old">old</span>':''}</td></tr>`).join('')+
+    `</tbody></table></div></div>`;
+}
+
+/* Cut chart */
+function drawLadder(box,rows){
+  if(!box)return;
+  const scy=S.course==='SCY',refK=scy?'ag':'AA';
+  const ticks=scy?[['Bronze','bronze',COL.bronze],['Silver','silver',COL.silver],['AG bonus','ag_bonus',COL.bonus]]:[['B','B',COL.bronze],['BB','BB',COL.silver],['A','A',COL.bonus]];
+  const leg=$('#ladLegend');
+  if(leg)leg.innerHTML=`<span><i class="dot" style="background:${COL.her}"></i>Her best</span><span><i style="background:${COL.ag}"></i>${scy?'Age Group cut':'AA'}</span>`+ticks.map(t=>`<span><i style="background:${t[2]};width:3px;height:12px"></i>${t[0]}</span>`).join('');
+  rows=rows.filter(r=>r.std&&r.std[refK]!=null);
+  if(!rows.length){box.innerHTML='<div class="empty">No cuts for these events.</div>';return}
+  const pct=(r,v)=>v/r.std[refK]-1;
+  const W=Math.max(300,box.clientWidth||340),rowH=34,top=22,H=top+rows.length*rowH+4;
+  const left=Math.max(...rows.map(r=>r.event.length))*7.2+10,right=12;
+  const vals=rows.flatMap(r=>[pct(r,r.sec),...ticks.filter(t=>r.std[t[1]]!=null).map(t=>pct(r,r.std[t[1]]))]);
+  const lo=Math.min(0,...vals)-0.015,hi=Math.max(...vals)*1.06+0.01;
+  const x=v=>left+(v-lo)/(hi-lo)*(W-left-right);
+  const step=[0.05,0.1,0.2,0.25,0.5].find(st=>x(st)-x(0)>=44)||0.5;
+  let s=`<svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" font-family="Barlow, system-ui, sans-serif" font-size="12">`;
+  for(let v=0;v<=hi;v=r2(v+step)){s+=`<line x1="${x(v)}" x2="${x(v)}" y1="${top-6}" y2="${H}" stroke="${v===0?COL.ag:COL.grid}" stroke-width="${v===0?1.5:1}" ${v===0?'stroke-dasharray="4 3"':''}/><text x="${x(v)}" y="${top-10}" text-anchor="middle" fill="${v===0?COL.ag:'#5B7083'}" font-size="11" ${v===0?'font-weight="600"':''}>${v===0?(scy?'AG cut':'AA'):'+'+Math.round(v*100)+'%'}</text>`}
+  rows.forEach((r,i)=>{
+    const y=top+i*rowH+rowH/2;const far=Math.max(...ticks.filter(t=>r.std[t[1]]!=null).map(t=>pct(r,r.std[t[1]])),pct(r,r.sec));
+    s+=`<g class="lad-row" data-event="${esc(r.event)}" data-course="${r.course}" data-i="${i}"><rect x="0" y="${y-rowH/2}" width="${W}" height="${rowH}" fill="transparent"/>`;
+    s+=`<text x="0" y="${y+4}" fill="#0E2233" font-weight="600">${esc(r.event)}</text>`;
+    s+=`<rect x="${x(0)}" y="${y-4}" width="${Math.max(0,x(far)-x(0))}" height="8" rx="4" fill="${COL.her}" opacity=".10"/>`;
+    ticks.forEach(t=>{if(r.std[t[1]]==null)return;const X=x(pct(r,r.std[t[1]]));s+=`<line x1="${X}" x2="${X}" y1="${y-9}" y2="${y+9}" stroke="${t[2]}" stroke-width="3" stroke-linecap="round"/>`});
+    const made=scy?(r.ne&&(r.ne.tier==='Silver'||r.ne.tier==='Age Group')):(r.std.BB!=null&&r.sec<=r.std.BB);
+    if(made)s+=`<circle cx="${x(pct(r,r.sec))}" cy="${y}" r="10" fill="${COL.her}" opacity=".18"/>`;
+    s+=`<circle cx="${x(pct(r,r.sec))}" cy="${y}" r="6.5" fill="${COL.her}" stroke="#fff" stroke-width="2"/></g>`;
+  });
+  s+='</svg>';
+  box.innerHTML=`<div class="chart">${s}<div class="tip"></div></div>`;
+  const tip=box.querySelector('.tip'),svg=box.querySelector('svg'),ch=box.querySelector('.chart');
+  svg.addEventListener('pointermove',e=>{const g=e.target.closest('g[data-i]');if(!g){tip.style.display='none';return}const r=rows[+g.dataset.i];
+    const lines=scy&&r.ne?[['Bronze','bronze'],['Silver','silver'],['AG bonus','ag_bonus'],['Age Group','ag']].filter(([,k])=>r.std[k]!=null).map(([n,k])=>`${n} ${ft(r.std[k])} ${r.ne.gaps[k]<=0?'✓':'· '+fgap(r.ne.gaps[k])+' off'}`):[r.next?`${r.next.name} ${ft(r.next.cut)} · ${fgap(r.next.gap)} off`:'Top level'];
+    tip.innerHTML=`<b>${esc(r.event)} ${r.time}</b> ${r.level?'· '+r.level:''}<br>`+lines.join('<br>');tip.style.display='block';
+    const br=ch.getBoundingClientRect();let L=e.clientX-br.left+12;if(L+tip.offsetWidth>br.width)L=e.clientX-br.left-tip.offsetWidth-12;tip.style.left=Math.max(0,L)+'px';
+    const gy=g.getBoundingClientRect().bottom-br.top+2;tip.style.top=Math.min(gy,br.height-tip.offsetHeight)+'px'});
+  svg.addEventListener('pointerleave',()=>tip.style.display='none');
+}
+
 /* PIN */
 function askPin(){
   return new Promise(res=>{
@@ -572,6 +630,7 @@ document.addEventListener('click',e=>{
   const del=t.closest('[data-del]');if(del){delSwim(del.dataset.del);return}
   const tile=t.closest('[data-tile]');if(tile){S.tile=S.tile===tile.dataset.tile?null:tile.dataset.tile;render();return}
   const evb=t.closest('[data-event]');if(evb){if($('#modal').classList.contains('on'))closeModal();openEvent(evb.dataset.event,evb.dataset.course);return}
+  const vw=t.closest('[data-view]');if(vw){S.view=vw.dataset.view;ls.set('swim-view',S.view);render();return}
   const cf=t.closest('[data-course-f]');if(cf){S.course=cf.dataset.courseF;render();return}
   const sk=t.closest('[data-stroke]');if(sk){S.stroke=sk.dataset.stroke;render();return}
   const sh=t.closest('[data-show]');if(sh){S.show=sh.dataset.show;render();return}
