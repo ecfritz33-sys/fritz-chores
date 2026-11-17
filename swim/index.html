@@ -514,8 +514,18 @@ function drawProgress(box,ev,course,withPace){
   // y ticks
   const nT=4;for(let i=0;i<=nT;i++){const v=lo-padv+((hi+padv)-(lo-padv))*i/nT;s+=`<line x1="${left}" x2="${W-right}" y1="${y(v)}" y2="${y(v)}" stroke="${COL.grid}"/><text x="${left-6}" y="${y(v)+3.5}" text-anchor="end" fill="#5B7083">${ft(v).replace(/\.\d+$/,m=>m.slice(0,2))}</text>`}
   // x ticks: months
-  const span=t1-t0,step=span>500?180:span>200?90:span>90?30:14;
-  for(let t=Math.ceil(t0/step)*step;t<=t1;t+=step){const d=new Date(t*864e5);s+=`<text x="${x(t)}" y="${H-6}" text-anchor="middle" fill="#5B7083">${MONTHS[d.getUTCMonth()]} ${String(d.getUTCFullYear()).slice(2)}</text>`}
+  // month-start ticks, spaced so labels never touch (~56px each)
+  const d0=new Date(t0*864e5),d1=new Date(t1*864e5);
+  const mi=d0.getUTCFullYear()*12+d0.getUTCMonth()+1,me=d1.getUTCFullYear()*12+d1.getUTCMonth();
+  const room=W-left-right,months=Math.max(1,me-mi+1);
+  const stepM=[1,2,3,4,6,12,24].find(k=>Math.ceil(months/k)*(k>=12?38:50)<=room)||24;
+  for(let m=mi;m<=me;m++){
+    if((m%12)%stepM!==0&&!(stepM>12&&m%12===0))continue;
+    if(stepM>12&&(m%12!==0||Math.floor(m/12)%(stepM/12)!==0))continue;
+    const t=Date.UTC(Math.floor(m/12),m%12,1)/864e5,X=x(t);
+    if(X<left+(stepM>=12?12:20)||X>W-right-(stepM>=12?10:18))continue;
+    const lab=stepM>=12?String(Math.floor(m/12)):MONTHS[m%12]+" '"+String(Math.floor(m/12)).slice(2);
+    s+=`<line x1="${X}" x2="${X}" y1="${H-bottom}" y2="${H-bottom+4}" stroke="#B9C9D4"/><text x="${X}" y="${H-6}" text-anchor="middle" fill="#5B7083">${lab}</text>`}
   // cuts
   let lastY=-99;cuts.slice().sort((a,b)=>y(a[1])-y(b[1])).forEach(c=>{s+=`<line x1="${left}" x2="${W-right}" y1="${y(c[1])}" y2="${y(c[1])}" stroke="${c[2]}" stroke-width="1.5" stroke-dasharray="5 4"/>`;const ly=Math.max(y(c[1]),lastY+12);lastY=ly;s+=`<text x="${W-right+5}" y="${ly+3.5}" fill="${c[2]}" font-weight="600">${esc(c[0])} ${ft(c[1])}</text>`});
   // area + step line
